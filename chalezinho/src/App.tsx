@@ -4,8 +4,7 @@ import { useState, useEffect } from "react";
 const SB_URL = "https://ekodvpaibodkthxwtxrc.supabase.co/rest/v1";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVrb2R2cGFpYm9ka3RoeHd0eHJjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU4MzAwNTEsImV4cCI6MjA5MTQwNjA1MX0.rJfjqFewBDPQ7O5bTwuRuVW-cYjXQO6aMUn8oDw_L3E";
 const APP_URL = "https://chalezinho-n7i4.vercel.app";
-const RESEND_KEY = "re_G2jsGaSY_5Lizo7g9BoE7Z8Uupi1nDVam";
-const FROM = "Chalezinho <no-reply@chalezinho.com>";
+// chave Resend gerenciada via variável de ambiente no Vercel (não exposta aqui)
 const ADMIN_PW_KEY = "cz_admin_pw";
 const PHOTOS = [1,2,3,4,5].map(n=>`https://cdn.jsdelivr.net/gh/alicegoularts-tech/chalezinho_fotos@main/${String(n).padStart(2,'0')}.jpg`);
 
@@ -81,14 +80,18 @@ const filterByDateRange = (items,from,to) => {
   });
 };
 
-const sendEmail = async(to,subject,html) => {
+const sendEmail = async(to, subject, html) => {
   try {
-    await fetch("https://api.resend.com/emails",{
-      method:"POST",
-      headers:{"Authorization":"Bearer "+RESEND_KEY,"Content-Type":"application/json"},
-      body:JSON.stringify({from:FROM,to:[to],subject,html})
+    const res = await fetch("/api/send-email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ to, subject, html }),
     });
-  } catch(e){console.error("email err",e);}
+    if (!res.ok) {
+      const e = await res.text();
+      console.error("sendEmail error:", res.status, e);
+    }
+  } catch(e) { console.error("sendEmail exception:", e); }
 };
 
 const getNotifEmails = async() => {
@@ -712,15 +715,43 @@ function AdminView({partners,setPartners,checkins,setCheckins,bookings,setBookin
           ))}
         </div>
 
-        <TabBar tabs={[["pending","⏳ Reservas("+pending.length+")"],["manual","✅ Check-in"],["requests","👤 Solicitações("+pendingPartners.length+")"],["parceiros","🤝 Parceiros"],["novo","➕ Novo"],["comissoes","💰 Comissões"],["ranking","🏆 Ranking"],["hist","📋 Histórico"],["rules","📋 Regras"],["config","⚙️ Config"]]} active={tab} set={setTab}/>
+        <TabBar tabs={[["checkins","⏳ Reservas/Histórico"],["manual","✅ Check-in"],["requests","👤 Solicitações("+pendingPartners.length+")"],["parceiros","🤝 Parceiros"],["comissoes","💰 Comissões"],["ranking","🏆 Ranking"],["rules","📋 Regras"],["config","⚙️ Config"]]} active={tab} set={setTab}/>
 
-        {tab==="pending"&&(
-          pending.length===0?<Card style={{textAlign:"center",padding:32,color:C.muted}}>Nenhuma reserva pendente 🎉</Card>:
-          <div style={{display:"flex",flexDirection:"column",gap:10}}>
-            {pending.map(b=>{
-              const p=partners.find(x=>x.id===b.partnerId);
-              return <PendingCard key={b.id} b={b} p={p} onConfirm={confirm}/>;
-            })}
+        {tab==="checkins"&&(
+          <div>
+            {/* Reservas pendentes */}
+            {pending.length>0&&(
+              <div style={{marginBottom:20}}>
+                <div style={{fontWeight:700,fontSize:14,color:C.text,marginBottom:10}}>⏳ Reservas Pendentes ({pending.length})</div>
+                <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                  {pending.map(b=>{
+                    const p=partners.find(x=>x.id===b.partnerId);
+                    return <PendingCard key={b.id} b={b} p={p} onConfirm={confirm}/>;
+                  })}
+                </div>
+              </div>
+            )}
+            {pending.length===0&&(
+              <div style={{textAlign:"center",padding:"16px 0",color:C.muted,fontSize:13,marginBottom:16}}>Nenhuma reserva pendente 🎉</div>
+            )}
+            {/* Histórico de check-ins */}
+            <div style={{fontWeight:700,fontSize:14,color:C.text,marginBottom:10}}>✅ Histórico de Check-ins</div>
+            {checkins.length===0&&<Card style={{textAlign:"center",padding:24,color:C.muted}}>Nenhum check-in ainda.</Card>}
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {[...checkins].reverse().map(c=>{
+                const p=partners.find(x=>x.id===c.partnerId);
+                return (
+                  <div key={c.id} style={{display:"flex",gap:10,padding:"12px 14px",background:C.surf,borderRadius:12,alignItems:"center",border:"1px solid "+C.border}}>
+                    <div style={{fontSize:20}}>✅</div>
+                    <div style={{flex:1}}>
+                      <div style={{fontWeight:600,fontSize:14}}>{c.tourist}</div>
+                      <div style={{fontSize:12,color:C.muted}}>{c.date} · via {p?.name||"?"} · {c.guestsPresent} pessoa(s)</div>
+                    </div>
+                    <div style={{fontSize:12,color:C.green,fontWeight:700}}>+{c.guestsPresent} pts</div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 
@@ -811,25 +842,6 @@ function AdminView({partners,setPartners,checkins,setCheckins,bookings,setBookin
 
         {tab==="comissoes"&&<CommissionsTab partners={partners} checkins={checkins} toast={toast}/>}
         {tab==="ranking"&&<AdminRanking partners={partners} checkins={checkins}/>}
-
-        {tab==="hist"&&(
-          <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            {checkins.length===0&&<Card style={{textAlign:"center",padding:32,color:C.muted}}>Nenhum check-in ainda.</Card>}
-            {[...checkins].reverse().map(c=>{
-              const p=partners.find(x=>x.id===c.partnerId);
-              return (
-                <div key={c.id} style={{display:"flex",gap:10,padding:"12px 14px",background:C.surf,borderRadius:12,alignItems:"center",border:"1px solid "+C.border}}>
-                  <div style={{fontSize:20}}>✅</div>
-                  <div style={{flex:1}}>
-                    <div style={{fontWeight:600,fontSize:14}}>{c.tourist}</div>
-                    <div style={{fontSize:12,color:C.muted}}>{c.date} · via {p?.name||"?"} · {c.guestsPresent} pessoa(s)</div>
-                  </div>
-                  <div style={{fontSize:12,color:C.green,fontWeight:700}}>+{c.guestsPresent} pts</div>
-                </div>
-              );
-            })}
-          </div>
-        )}
 
         {tab==="rules"&&<Rules/>}
 
