@@ -49,8 +49,7 @@ const PTYPES = {
 };
 
 const TIME_SLOTS = [
-  "12:00","12:30","13:00","13:30","14:00","14:30","15:00",
-  "18:30","19:00","19:30","20:00","20:30","21:00","21:30","22:00"
+  "18:00","18:30","19:00","19:30","20:00","20:30","21:00","21:30","22:00","22:30","23:00"
 ];
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
@@ -109,8 +108,8 @@ const emailTemplate = (title, bodyHtml, ctaUrl, ctaLabel) => `<!DOCTYPE html>
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#FFF8F8;padding:24px 12px;">
     <tr><td align="center">
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;background:#FFFFFF;border:1px solid #F0C0C0;border-radius:14px;overflow:hidden;box-shadow:0 4px 18px rgba(192,30,30,0.08);">
-        <tr><td align="center" style="background:#C01E1E;background:linear-gradient(135deg,#C01E1E,#8B1010);padding:28px 20px;">
-          <img src="${LOGO_URL}" alt="Chalezinho" width="180" style="display:block;max-width:180px;height:auto;border:0;outline:none;text-decoration:none;"/>
+        <tr><td align="center" style="background:#FFF8F8;padding:32px 20px 28px;border-top:6px solid #C01E1E;border-bottom:4px solid #C01E1E;">
+          <img src="${LOGO_URL}" alt="Chalezinho" width="200" style="display:block;max-width:200px;height:auto;border:0;outline:none;text-decoration:none;"/>
         </td></tr>
         <tr><td style="padding:28px 28px 8px;">
           <h1 style="margin:0 0 14px;color:#C01E1E;font-size:22px;font-weight:700;font-family:'Segoe UI',Arial,sans-serif;">${title}</h1>
@@ -706,9 +705,15 @@ function BlocksTab({toast}){
     if(dup) return toast("Bloqueio já existe","err");
     setLoading(true);
     const row={id:uid(),date,time:time||null};
-    await sb.post("blocked_slots",row);
-    setLoading(false); setDate(""); setTime("");
-    load(); toast("✅ Bloqueio adicionado");
+    const res=await sb.post("blocked_slots",row);
+    setLoading(false);
+    if(!Array.isArray(res)||res.length===0){
+      console.error("blocked_slots insert failed:",res);
+      return toast("Erro ao salvar: "+(res?.message||"verifique RLS da tabela blocked_slots"),"err");
+    }
+    setDate(""); setTime("");
+    await load();
+    toast("✅ Bloqueio adicionado");
   };
 
   const del=async(b)=>{
