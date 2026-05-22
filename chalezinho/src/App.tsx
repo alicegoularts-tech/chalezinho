@@ -48,6 +48,11 @@ const PTYPES = {
   other:    {label:"Outro",             icon:"🤝"},
 };
 
+const TIME_SLOTS = [
+  "12:00","12:30","13:00","13:30","14:00","14:30","15:00",
+  "18:30","19:00","19:30","20:00","20:30","21:00","21:30","22:00"
+];
+
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 const uid = () => Math.random().toString(36).slice(2,9);
 const getLevel = p => [...LEVELS].reverse().find(l=>p>=l.min)||LEVELS[0];
@@ -61,12 +66,14 @@ const sb = {
   get: async(t,q="")=>{ const r=await fetch(`${SB_URL}/${t}?${q}`,{headers:HDR}); return r.json(); },
   post: async(t,b)=>{ const r=await fetch(`${SB_URL}/${t}`,{method:"POST",headers:HDR,body:JSON.stringify(b)}); return r.json(); },
   patch: async(t,m,b)=>{ const r=await fetch(`${SB_URL}/${t}?${m}`,{method:"PATCH",headers:HDR,body:JSON.stringify(b)}); return r.json(); },
+  del: async(t,m)=>{ const r=await fetch(`${SB_URL}/${t}?${m}`,{method:"DELETE",headers:HDR}); return r.ok; },
 };
 
 const toPartner = r => ({id:r.id,name:r.name,type:r.type,email:r.email,pw:r.pw,code:r.code,status:r.status||"approved",cpf:r.cpf,birthDate:r.birth_date,address:r.address,phone:r.phone,customType:r.custom_type,rejectionReason:r.rejection_reason});
 const toCheckin = r => ({id:r.id,partnerId:r.partner_id,tourist:r.tourist,date:r.date,status:r.status,guestsPresent:r.guests_present||1});
-const toBooking = r => ({id:r.id,partnerId:r.partner_id,tourist:r.tourist,email:r.email,date:r.date,guests:r.guests,status:r.status});
+const toBooking = r => ({id:r.id,partnerId:r.partner_id,tourist:r.tourist,email:r.email,date:r.date,time:r.time||"",guests:r.guests,status:r.status});
 const toComm = r => ({id:r.id,partnerId:r.partner_id,checkinId:r.checkin_id,guestsPresent:r.guests_present,levelName:r.level_name,rate:r.rate,totalAmount:r.total_amount,date:r.date,paid:r.paid});
+const toBlock = r => ({id:r.id,date:r.date,time:r.time||null,createdAt:r.created_at});
 
 const calcPts = checkins => checkins.reduce((s,c)=>s+(c.guestsPresent||1),0);
 
@@ -93,6 +100,38 @@ const sendEmail = async(to, subject, html) => {
     }
   } catch(e) { console.error("sendEmail exception:", e); }
 };
+
+const LOGO_URL = "https://lh3.googleusercontent.com/d/1pthcir9ziPtKRkihiuE2868qimCIBRrg";
+
+const emailTemplate = (title, bodyHtml, ctaUrl, ctaLabel) => `<!DOCTYPE html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title></head>
+<body style="margin:0;padding:0;background:#FFF8F8;font-family:'Segoe UI',Arial,sans-serif;color:#1A0505;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#FFF8F8;padding:24px 12px;">
+    <tr><td align="center">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;background:#FFFFFF;border:1px solid #F0C0C0;border-radius:14px;overflow:hidden;box-shadow:0 4px 18px rgba(192,30,30,0.08);">
+        <tr><td align="center" style="background:#C01E1E;background:linear-gradient(135deg,#C01E1E,#8B1010);padding:28px 20px;">
+          <img src="${LOGO_URL}" alt="Chalezinho" width="180" style="display:block;max-width:180px;height:auto;border:0;outline:none;text-decoration:none;"/>
+        </td></tr>
+        <tr><td style="padding:28px 28px 8px;">
+          <h1 style="margin:0 0 14px;color:#C01E1E;font-size:22px;font-weight:700;font-family:'Segoe UI',Arial,sans-serif;">${title}</h1>
+          <div style="font-size:15px;line-height:1.6;color:#1A0505;font-family:'Segoe UI',Arial,sans-serif;">${bodyHtml}</div>
+        </td></tr>
+        ${ctaUrl?`<tr><td align="center" style="padding:8px 28px 28px;">
+          <a href="${ctaUrl}" style="display:inline-block;background:#C01E1E;color:#ffffff;text-decoration:none;padding:13px 30px;border-radius:10px;font-weight:700;font-size:15px;font-family:'Segoe UI',Arial,sans-serif;">${ctaLabel||"Acessar"}</a>
+        </td></tr>`:`<tr><td style="padding:0 0 18px;"></td></tr>`}
+        <tr><td align="center" style="background:#FFF0F0;padding:14px 20px;border-top:1px solid #F0C0C0;">
+          <div style="font-size:12px;color:#8B4444;font-family:'Segoe UI',Arial,sans-serif;">Chalezinho Gramado · Programa de Parceiros</div>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`;
+
+const infoRow = (label, value) =>
+  `<tr><td style="padding:6px 12px 6px 0;color:#8B4444;font-size:11px;text-transform:uppercase;letter-spacing:.6px;font-weight:700;width:110px;vertical-align:top;font-family:'Segoe UI',Arial,sans-serif;">${label}</td><td style="padding:6px 0;font-size:15px;color:#1A0505;font-family:'Segoe UI',Arial,sans-serif;">${value}</td></tr>`;
+
+const infoBlock = (rowsHtml) =>
+  `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;background:#FFF0F0;border:1px solid #F0C0C0;border-radius:10px;margin:14px 0;"><tr><td style="padding:14px 16px;"><table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">${rowsHtml}</table></td></tr></table>`;
 
 const getNotifEmails = async() => {
   try {
@@ -273,8 +312,18 @@ function PartnerRegister({partners,setPartners,go,toast}){
     setPartners(prev=>[...prev,toPartner(newP)]);
     // Email para o restaurante
     const emails=await getNotifEmails();
+    const regBody=`<p>Um novo parceiro solicitou cadastro no Programa de Parceiros:</p>`
+      +infoBlock(
+        infoRow("Nome",f.name)
+        +infoRow("Tipo",`${PTYPES[f.type]?.label}${f.customType?` (${f.customType})`:""}`)
+        +infoRow("E-mail",f.email)
+        +infoRow("Telefone",f.phone)
+        +infoRow("CPF",f.cpf)
+      )
+      +`<p style="color:#8B4444;font-size:13px;margin:0;">Acesse o painel do restaurante para aprovar ou rejeitar.</p>`;
     for(const em of emails){
-      await sendEmail(em,"Nova solicitação de parceiro – "+f.name,`<h2>Nova solicitação de cadastro</h2><p><b>Nome:</b> ${f.name}<br/><b>Tipo:</b> ${PTYPES[f.type]?.label}${f.customType?" ("+f.customType+")":""}<br/><b>Email:</b> ${f.email}<br/><b>Telefone:</b> ${f.phone}<br/><b>CPF:</b> ${f.cpf}</p><p>Acesse o painel do restaurante para aprovar ou rejeitar.</p>`);
+      await sendEmail(em,"Nova solicitação de parceiro – "+f.name,
+        emailTemplate("Nova solicitação de cadastro",regBody,APP_URL,"Abrir painel"));
     }
     setLoading(false);
     toast("Solicitação enviada! Aguarde a aprovação do restaurante 🎉");
@@ -486,10 +535,20 @@ function TouristView({partners,bookings,setBookings,go,toast}){
   const [step,setStep]=useState("code");
   const [code,setCode]=useState("");
   const [partner,setPartner]=useState(null);
-  const [f,setF]=useState({name:"",email:"",date:"",guests:2});
+  const [f,setF]=useState({name:"",email:"",date:"",time:"",guests:2});
   const [loading,setLoading]=useState(false);
+  const [blocks,setBlocks]=useState([]);
 
   useEffect(()=>{ try{ const p=new URLSearchParams(window.location.search); const c=p.get("code"); if(c) setCode(c.toUpperCase()); }catch{} },[]);
+
+  useEffect(()=>{
+    if(!f.date){ setBlocks([]); return; }
+    sb.get("blocked_slots","date=eq."+f.date).then(r=>setBlocks((r||[]).map(toBlock)));
+  },[f.date]);
+
+  const dayBlocked=blocks.some(b=>!b.time);
+  const blockedTimes=new Set(blocks.filter(b=>b.time).map(b=>b.time));
+  const allSlotsBlocked=f.date&&!dayBlocked&&TIME_SLOTS.every(t=>blockedTimes.has(t));
 
   const checkCode=()=>{
     const p=partners.find(x=>x.code.toUpperCase()===code.toUpperCase().trim()&&x.status==="approved");
@@ -498,15 +557,28 @@ function TouristView({partners,bookings,setBookings,go,toast}){
   };
 
   const book=async()=>{
-    if(!f.name||!f.date) return toast("Preencha todos os campos","err");
+    if(!f.name||!f.date||!f.time) return toast("Preencha todos os campos","err");
+    if(dayBlocked) return toast("Data indisponível para reservas","err");
+    if(blockedTimes.has(f.time)) return toast("Este horário não está disponível","err");
     setLoading(true);
-    const nb={id:uid(),partner_id:partner.id,tourist:f.name,email:f.email,date:f.date,guests:f.guests,status:"pending"};
+    const nb={id:uid(),partner_id:partner.id,tourist:f.name,email:f.email,date:f.date,time:f.time,guests:f.guests,status:"pending"};
     await sb.post("bookings",nb);
     setBookings(prev=>[...prev,toBooking(nb)]);
     // Email restaurante
     const emails=await getNotifEmails();
+    const body=`<p>Uma nova reserva foi recebida pelo Programa de Parceiros:</p>`
+      +infoBlock(
+        infoRow("Cliente",f.name)
+        +infoRow("Data",f.date)
+        +infoRow("Horário",f.time)
+        +infoRow("Pessoas",String(f.guests))
+        +infoRow("Indicado por",`${partner.name} (${partner.code})`)
+        +(f.email?infoRow("E-mail",f.email):"")
+      )
+      +`<p style="color:#8B4444;font-size:13px;margin:0;">Acesse o painel do restaurante para confirmar o check-in quando o cliente chegar.</p>`;
     for(const em of emails){
-      await sendEmail(em,"Nova reserva – "+f.name,`<h2>Nova reserva recebida</h2><p><b>Cliente:</b> ${f.name}<br/><b>Data:</b> ${f.date}<br/><b>Pessoas:</b> ${f.guests}<br/><b>Indicado por:</b> ${partner.name} (${partner.code})</p>`);
+      await sendEmail(em,"Nova reserva – "+f.name,
+        emailTemplate("Nova reserva recebida",body,APP_URL,"Abrir painel"));
     }
     setLoading(false);
     setStep("done");
@@ -519,9 +591,9 @@ function TouristView({partners,bookings,setBookings,go,toast}){
         <h2 style={{color:C.green,margin:"0 0 8px"}}>Reserva Enviada!</h2>
         <p style={{color:C.muted,lineHeight:1.7,marginBottom:18}}>Ao chegar no Chalezinho, informe que foi indicado por <strong style={{color:C.primary}}>{partner?.name}</strong> e aproveite seu desconto!</p>
         <div style={{background:C.surf2,borderRadius:12,padding:14,marginBottom:18,fontSize:14,lineHeight:2,textAlign:"left",border:"1px solid "+C.border}}>
-          <div>👤 {f.name}</div><div>📅 {f.date}</div><div>👥 {f.guests} pessoa(s)</div><div>🤝 via {partner?.name}</div>
+          <div>👤 {f.name}</div><div>📅 {f.date}{f.time?` às ${f.time}`:""}</div><div>👥 {f.guests} pessoa(s)</div><div>🤝 via {partner?.name}</div>
         </div>
-        <Btn onClick={()=>{setStep("code");setCode("");setPartner(null);setF({name:"",email:"",date:"",guests:2});}} style={{width:"100%",marginBottom:8}}>Nova Reserva</Btn>
+        <Btn onClick={()=>{setStep("code");setCode("");setPartner(null);setF({name:"",email:"",date:"",time:"",guests:2});}} style={{width:"100%",marginBottom:8}}>Nova Reserva</Btn>
         <Btn onClick={()=>go("landing")} variant="ghost" style={{width:"100%"}}>Voltar</Btn>
       </Card>
     </div>
@@ -564,7 +636,41 @@ function TouristView({partners,bookings,setBookings,go,toast}){
               </div>
               <Input label="Seu Nome *" value={f.name} onChange={e=>setF({...f,name:e.target.value})} placeholder="Nome completo"/>
               <Input label="Email (opcional)" type="email" value={f.email} onChange={e=>setF({...f,email:e.target.value})} placeholder="seu@email.com"/>
-              <Input label="Data da Visita *" type="date" value={f.date} onChange={e=>setF({...f,date:e.target.value})}/>
+              <Input label="Data da Visita *" type="date" value={f.date} onChange={e=>setF({...f,date:e.target.value,time:""})}/>
+              {f.date&&dayBlocked&&(
+                <div style={{background:"#FFE4E4",border:"1px solid "+C.border,borderRadius:10,padding:"10px 12px",color:C.red,fontSize:13,fontWeight:700,marginBottom:12,textAlign:"center"}}>
+                  ⛔ Data indisponível para reservas. Escolha outra data.
+                </div>
+              )}
+              {f.date&&!dayBlocked&&allSlotsBlocked&&(
+                <div style={{background:"#FFE4E4",border:"1px solid "+C.border,borderRadius:10,padding:"10px 12px",color:C.red,fontSize:13,fontWeight:700,marginBottom:12,textAlign:"center"}}>
+                  ⛔ Todos os horários estão indisponíveis nesta data.
+                </div>
+              )}
+              {f.date&&!dayBlocked&&!allSlotsBlocked&&(
+                <div style={{marginBottom:12}}>
+                  <div style={{color:C.muted,fontSize:11,fontWeight:700,marginBottom:4,textTransform:"uppercase",letterSpacing:0.7}}>Horário *</div>
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                    {TIME_SLOTS.map(t=>{
+                      const blocked=blockedTimes.has(t);
+                      const sel=f.time===t;
+                      return (
+                        <button key={t} disabled={blocked} onClick={()=>setF({...f,time:t})}
+                          title={blocked?"Horário indisponível":""}
+                          style={{
+                            border:sel?"none":"1.5px solid "+C.border,
+                            cursor:blocked?"not-allowed":"pointer",
+                            padding:"8px 12px",borderRadius:9,fontWeight:700,fontSize:13,fontFamily:"inherit",
+                            background:sel?"linear-gradient(135deg,"+C.primary+","+C.primaryDark+")":(blocked?"#F5F5F5":C.surf),
+                            color:sel?"#fff":(blocked?C.soft:C.muted),
+                            opacity:blocked?0.5:1,
+                            textDecoration:blocked?"line-through":"none"
+                          }}>{t}</button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
               <div style={{marginBottom:12}}>
                 <div style={{color:C.muted,fontSize:11,fontWeight:700,marginBottom:4,textTransform:"uppercase",letterSpacing:0.7}}>Número de Pessoas</div>
                 <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
@@ -583,6 +689,68 @@ function TouristView({partners,bookings,setBookings,go,toast}){
   );
 }
 
+// ─── BLOCKS TAB (bloqueio de dias e horários) ─────────────────────────────────
+function BlocksTab({toast}){
+  const [blocks,setBlocks]=useState([]);
+  const [date,setDate]=useState("");
+  const [time,setTime]=useState("");
+  const [loading,setLoading]=useState(false);
+
+  const load=()=>sb.get("blocked_slots","select=*&order=date.asc")
+    .then(r=>setBlocks((r||[]).map(toBlock)));
+  useEffect(()=>{ load(); },[]);
+
+  const add=async()=>{
+    if(!date) return toast("Escolha uma data","err");
+    const dup=blocks.find(b=>b.date===date&&(b.time||"")===(time||""));
+    if(dup) return toast("Bloqueio já existe","err");
+    setLoading(true);
+    const row={id:uid(),date,time:time||null};
+    await sb.post("blocked_slots",row);
+    setLoading(false); setDate(""); setTime("");
+    load(); toast("✅ Bloqueio adicionado");
+  };
+
+  const del=async(b)=>{
+    if(!window.confirm(`Remover bloqueio de ${b.date}${b.time?" às "+b.time:" (dia inteiro)"}?`)) return;
+    const ok=await sb.del("blocked_slots","id=eq."+b.id);
+    if(!ok) return toast("Erro ao remover","err");
+    setBlocks(prev=>prev.filter(x=>x.id!==b.id));
+    toast("Bloqueio removido");
+  };
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:14}}>
+      <Card>
+        <div style={{fontWeight:700,fontSize:15,marginBottom:14}}>🚫 Adicionar Bloqueio</div>
+        <Input label="Data *" type="date" value={date} onChange={e=>setDate(e.target.value)}/>
+        <Sel label="Horário (vazio = dia inteiro)" value={time} onChange={e=>setTime(e.target.value)}>
+          <option value="">Dia inteiro</option>
+          {TIME_SLOTS.map(t=><option key={t} value={t}>{t}</option>)}
+        </Sel>
+        <Btn onClick={add} disabled={loading} style={{width:"100%",padding:"12px"}}>{loading?"Salvando...":"➕ Bloquear"}</Btn>
+      </Card>
+
+      <Card>
+        <div style={{fontWeight:700,fontSize:15,marginBottom:14}}>🗓️ Bloqueios Ativos ({blocks.length})</div>
+        {blocks.length===0&&<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:13}}>Nenhum bloqueio cadastrado.</div>}
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {blocks.map(b=>(
+            <div key={b.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:C.surf2,borderRadius:10,border:"1px solid "+C.border}}>
+              <div style={{fontSize:22}}>{b.time?"🕐":"📅"}</div>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:700,fontSize:14}}>{b.date}{b.time?` · ${b.time}`:" · Dia inteiro"}</div>
+                <div style={{fontSize:11,color:C.muted}}>Criado em {(b.createdAt||"").slice(0,10)}</div>
+              </div>
+              <Btn onClick={()=>del(b)} variant="danger" style={{padding:"6px 12px",fontSize:12}}>Remover</Btn>
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 // ─── ADMIN VIEW ───────────────────────────────────────────────────────────────
 function AdminView({partners,setPartners,checkins,setCheckins,bookings,setBookings,go,toast}){
   const [authed,setAuthed]=useState(false);
@@ -595,10 +763,13 @@ function AdminView({partners,setPartners,checkins,setCheckins,bookings,setBookin
   const [cpw,setCpw]=useState({cur:"",novo:"",conf:""});
   const [showCpw,setShowCpw]=useState(false);
   const [rejectId,setRejectId]=useState(null);const [rejectReason,setRejectReason]=useState("");
+  const [search,setSearch]=useState("");
 
   const pending=bookings.filter(b=>b.status==="pending");
   const pendingPartners=partners.filter(p=>p.status==="pending");
   const approvedPartners=partners.filter(p=>p.status==="approved");
+  const q=search.trim().toLowerCase();
+  const filteredPending=q?pending.filter(b=>(b.tourist||"").toLowerCase().includes(q)):pending;
 
   useEffect(()=>{
     sb.get("app_config","key=eq.notif_emails").then(r=>{ if(r&&r[0]) setNotifEmails(r[0].value); });
@@ -625,7 +796,15 @@ function AdminView({partners,setPartners,checkins,setCheckins,bookings,setBookin
     // Email parceiro
     const p=partners.find(x=>x.id===b.partnerId);
     if(p?.email){
-      await sendEmail(p.email,"✅ Check-in confirmado – "+b.tourist,`<h2>Check-in confirmado!</h2><p>O cliente <b>${b.tourist}</b> compareceu ao Chalezinho.<br/><b>Pessoas presentes:</b> ${guestsPresent}<br/><b>Pontos ganhos:</b> +${guestsPresent}${rate>0?"<br/><b>Comissão:</b> R$ "+(rate*guestsPresent).toFixed(2):""}</p>`);
+      const ciBody=`<p>O cliente <b>${b.tourist}</b> compareceu ao Chalezinho. Obrigado pela indicação!</p>`
+        +infoBlock(
+          infoRow("Cliente",b.tourist)
+          +infoRow("Pessoas",String(guestsPresent))
+          +infoRow("Pontos",`+${guestsPresent}`)
+          +(rate>0?infoRow("Comissão",`R$ ${(rate*guestsPresent).toFixed(2)}`):"")
+        );
+      await sendEmail(p.email,"✅ Check-in confirmado – "+b.tourist,
+        emailTemplate("Check-in confirmado!",ciBody,APP_URL,"Ver meu painel"));
     }
     toast("✅ Check-in de "+b.tourist+" confirmado!");
   };
@@ -645,7 +824,15 @@ function AdminView({partners,setPartners,checkins,setCheckins,bookings,setBookin
     }
     const p=partners.find(x=>x.id===mPartner);
     if(p?.email){
-      await sendEmail(p.email,"✅ Check-in registrado",`<h2>Check-in registrado!</h2><p>Presença de <b>${mName}</b> confirmada.<br/><b>Pessoas:</b> ${mGuests}<br/><b>Pontos:</b> +${mGuests}${rate>0?"<br/><b>Comissão:</b> R$ "+(rate*mGuests).toFixed(2):""}</p>`);
+      const mBody=`<p>O restaurante registrou uma presença em seu nome.</p>`
+        +infoBlock(
+          infoRow("Cliente",mName)
+          +infoRow("Pessoas",String(mGuests))
+          +infoRow("Pontos",`+${mGuests}`)
+          +(rate>0?infoRow("Comissão",`R$ ${(rate*mGuests).toFixed(2)}`):"")
+        );
+      await sendEmail(p.email,"✅ Check-in registrado",
+        emailTemplate("Check-in registrado!",mBody,APP_URL,"Ver meu painel"));
     }
     setLoading(false); toast("✅ Check-in registrado!"); setMName(""); setMPartner(""); setMGuests(1);
   };
@@ -666,14 +853,22 @@ function AdminView({partners,setPartners,checkins,setCheckins,bookings,setBookin
   const approvePartner=async(p)=>{
     await sb.patch("partners","id=eq."+p.id,{status:"approved"});
     setPartners(prev=>prev.map(x=>x.id===p.id?{...x,status:"approved"}:x));
-    await sendEmail(p.email,"🎉 Cadastro aprovado – Chalezinho",`<h2>Parabéns, ${p.name}!</h2><p>Seu cadastro foi aprovado no Programa de Parceiros do Chalezinho.<br/><b>Seu código:</b> ${p.code}<br/>Acesse o app e comece a indicar clientes!</p><p><a href="${APP_URL}">Acessar o app</a></p>`);
+    const okBody=`<p>Parabéns, <b>${p.name}</b>! Seu cadastro foi aprovado no Programa de Parceiros do Chalezinho.</p>`
+      +infoBlock(infoRow("Seu código",p.code))
+      +`<p>Acesse o app e comece a indicar clientes para ganhar pontos, prêmios e comissões.</p>`;
+    await sendEmail(p.email,"🎉 Cadastro aprovado – Chalezinho",
+      emailTemplate("Cadastro aprovado!",okBody,APP_URL,"Acessar o app"));
     toast("✅ "+p.name+" aprovado!");
   };
 
   const rejectPartner=async(p,reason)=>{
     await sb.patch("partners","id=eq."+p.id,{status:"rejected",rejection_reason:reason});
     setPartners(prev=>prev.map(x=>x.id===p.id?{...x,status:"rejected",rejectionReason:reason}:x));
-    await sendEmail(p.email,"Cadastro não aprovado – Chalezinho",`<h2>Olá, ${p.name}</h2><p>Infelizmente sua solicitação não foi aprovada neste momento.</p><p><b>Motivo:</b> ${reason}</p><p>Em caso de dúvidas, entre em contato com o restaurante.</p>`);
+    const noBody=`<p>Olá, <b>${p.name}</b>. Infelizmente sua solicitação não foi aprovada neste momento.</p>`
+      +infoBlock(infoRow("Motivo",reason))
+      +`<p style="color:#8B4444;font-size:13px;margin:0;">Em caso de dúvidas, entre em contato com o restaurante.</p>`;
+    await sendEmail(p.email,"Cadastro não aprovado – Chalezinho",
+      emailTemplate("Cadastro não aprovado",noBody));
     setRejectId(null); setRejectReason(""); toast("Solicitação de "+p.name+" rejeitada.");
   };
 
@@ -715,20 +910,30 @@ function AdminView({partners,setPartners,checkins,setCheckins,bookings,setBookin
           ))}
         </div>
 
-        <TabBar tabs={[["checkins","⏳ Reservas/Histórico"],["manual","✅ Check-in"],["requests","👤 Solicitações("+pendingPartners.length+")"],["parceiros","🤝 Parceiros"],["comissoes","💰 Comissões"],["ranking","🏆 Ranking"],["rules","📋 Regras"],["config","⚙️ Config"]]} active={tab} set={setTab}/>
+        <TabBar tabs={[["checkins","⏳ Reservas/Histórico"],["manual","✅ Check-in"],["requests","👤 Solicitações("+pendingPartners.length+")"],["parceiros","🤝 Parceiros"],["blocks","🚫 Bloqueios"],["comissoes","💰 Comissões"],["ranking","🏆 Ranking"],["rules","📋 Regras"],["config","⚙️ Config"]]} active={tab} set={setTab}/>
 
         {tab==="checkins"&&(
           <div>
+            {/* Busca */}
+            {pending.length>0&&(
+              <div style={{marginBottom:12}}>
+                <input value={search} onChange={e=>setSearch(e.target.value)}
+                  placeholder="🔎 Buscar por nome do cliente…"
+                  style={{width:"100%",background:C.surf2,border:"1.5px solid "+C.border,borderRadius:8,padding:"10px 12px",color:C.text,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"}}/>
+              </div>
+            )}
             {/* Reservas pendentes */}
             {pending.length>0&&(
               <div style={{marginBottom:20}}>
-                <div style={{fontWeight:700,fontSize:14,color:C.text,marginBottom:10}}>⏳ Reservas Pendentes ({pending.length})</div>
-                <div style={{display:"flex",flexDirection:"column",gap:10}}>
-                  {pending.map(b=>{
-                    const p=partners.find(x=>x.id===b.partnerId);
-                    return <PendingCard key={b.id} b={b} p={p} onConfirm={confirm}/>;
-                  })}
-                </div>
+                <div style={{fontWeight:700,fontSize:14,color:C.text,marginBottom:10}}>⏳ Reservas Pendentes ({filteredPending.length}{q?` de ${pending.length}`:""})</div>
+                {q&&filteredPending.length===0
+                  ?<div style={{textAlign:"center",padding:"16px 0",color:C.muted,fontSize:13}}>Nenhum resultado para "{search}"</div>
+                  :<div style={{display:"flex",flexDirection:"column",gap:10}}>
+                    {filteredPending.map(b=>{
+                      const p=partners.find(x=>x.id===b.partnerId);
+                      return <PendingCard key={b.id} b={b} p={p} onConfirm={confirm}/>;
+                    })}
+                  </div>}
               </div>
             )}
             {pending.length===0&&(
@@ -840,6 +1045,7 @@ function AdminView({partners,setPartners,checkins,setCheckins,bookings,setBookin
           </Card>
         )}
 
+        {tab==="blocks"&&<BlocksTab toast={toast}/>}
         {tab==="comissoes"&&<CommissionsTab partners={partners} checkins={checkins} toast={toast}/>}
         {tab==="ranking"&&<AdminRanking partners={partners} checkins={checkins}/>}
 
@@ -875,7 +1081,7 @@ function PendingCard({b,p,onConfirm}){
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}}>
         <div style={{flex:1}}>
           <div style={{fontWeight:700,fontSize:16}}>👤 {b.tourist}</div>
-          <div style={{fontSize:13,color:C.muted,marginTop:2}}>📅 {b.date} · Reserva: {b.guests} pessoa(s)</div>
+          <div style={{fontSize:13,color:C.muted,marginTop:2}}>📅 {b.date}{b.time?` às ${b.time}`:""} · Reserva: {b.guests} pessoa(s)</div>
           <div style={{fontSize:13,color:C.primary,marginTop:2}}>🤝 via {p?.name||"?"}</div>
           <div style={{marginTop:10}}>
             <div style={{color:C.muted,fontSize:11,fontWeight:700,marginBottom:4,textTransform:"uppercase",letterSpacing:0.7}}>Pessoas que compareceram</div>
