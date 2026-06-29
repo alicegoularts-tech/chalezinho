@@ -21,11 +21,11 @@ const pageBg = "linear-gradient(160deg,#fff5f5 0%,#fff 55%,#fff8f0 100%)";
 
 const LEVELS = [
   {name:"Iniciante",min:0,   emoji:"🌱",col:"#7B6060"},
-  {name:"Bronze",   min:100, emoji:"🥉",col:"#8B5530"},
-  {name:"Prata",    min:250, emoji:"🥈",col:"#5A6B7A"},
-  {name:"Ouro",     min:500, emoji:"🥇",col:"#B8860B"},
-  {name:"Diamante", min:1000,emoji:"💎",col:"#1565C0"},
-  {name:"Lenda",    min:2000,emoji:"👑",col:"#6A0DAD"},
+  {name:"Bronze",   min:50,  emoji:"🥉",col:"#8B5530"},
+  {name:"Prata",    min:150, emoji:"🥈",col:"#5A6B7A"},
+  {name:"Ouro",     min:300, emoji:"🥇",col:"#B8860B"},
+  {name:"Diamante", min:700, emoji:"💎",col:"#1565C0"},
+  {name:"Lenda",    min:1500,emoji:"👑",col:"#6A0DAD"},
 ];
 const COMM_RATES = {Ouro:2,Diamante:5,Lenda:10};
 const BADGES = [
@@ -59,6 +59,17 @@ const getNextLvl = p => LEVELS.find(l=>l.min>p);
 const earnedBadges = n => BADGES.filter(b=>n>=b.req);
 const getAdminPw = () => { try{return localStorage.getItem(ADMIN_PW_KEY)||"admin123";}catch{return "admin123";} };
 const saveAdminPw = p => { try{localStorage.setItem(ADMIN_PW_KEY,p);}catch{} };
+
+// Normaliza código: maiúsculas, somente A-Z e 0-9, limite de 12 chars
+const normalizeCode = (s) => (s||"").toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,12);
+// Verifica se o código está disponível (ignora o próprio parceiro ao editar)
+const isCodeAvailable = (partners, code, excludeId=null) => {
+  const norm = normalizeCode(code);
+  if(!norm) return false;
+  return !partners.some(p => normalizeCode(p.code)===norm && p.id!==excludeId);
+};
+// Sugere um código baseado no nome
+const suggestCode = (name) => normalizeCode((name||"").split(" ")[0]).slice(0,8);
 
 const HDR = {"apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY,"Content-Type":"application/json","Prefer":"return=representation"};
 const sb = {
@@ -298,15 +309,35 @@ function PartnerLogin({partners,setCurrent,go,toast}){
 
 // ─── PARTNER REGISTER ─────────────────────────────────────────────────────────
 function PartnerRegister({partners,setPartners,go,toast}){
-  const [f,setF]=useState({name:"",type:"guide",email:"",pw:"",cpf:"",birthDate:"",address:"",phone:"",customType:""});
+  const [f,setF]=useState({name:"",type:"guide",email:"",pw:"",cpf:"",birthDate:"",address:"",phone:"",customType:"",code:""});
+  const [codeTouched,setCodeTouched]=useState(false);
   const [loading,setLoading]=useState(false);
+
+  // Sugere código automaticamente conforme o nome muda (até o usuário tocar no campo)
+  const handleName = (val) => {
+    setF(prev => ({...prev, name:val, code: codeTouched ? prev.code : suggestCode(val)}));
+  };
+  const handleCode = (val) => {
+    setCodeTouched(true);
+    setF(prev => ({...prev, code: normalizeCode(val)}));
+  };
+
+  // Status do código em tempo real
+  const codeStatus = (() => {
+    if (!f.code) return null;
+    if (f.code.length < 3) return { ok:false, msg:"Mínimo 3 caracteres" };
+    if (!isCodeAvailable(partners, f.code)) return { ok:false, msg:"Já está em uso" };
+    return { ok:true, msg:"Código disponível ✓" };
+  })();
+
   const reg=async()=>{
     if(!f.name||!f.email||!f.pw||!f.cpf||!f.birthDate||!f.address||!f.phone) return toast("Preencha todos os campos obrigatórios","err");
     if(f.type==="other"&&!f.customType) return toast("Descreva o tipo de parceiro","err");
+    if(!f.code||f.code.length<3) return toast("Escolha um código de indicação (mín. 3 caracteres)","err");
+    if(!isCodeAvailable(partners,f.code)) return toast("Código já está em uso, escolha outro","err");
     if(partners.find(p=>p.email===f.email)) return toast("Email já cadastrado","err");
     setLoading(true);
-    const base=f.name.split(" ")[0].toUpperCase().replace(/[^A-Z]/g,"").slice(0,6);
-    const newP={id:uid(),name:f.name,type:f.type,email:f.email,pw:f.pw,code:base+uid().slice(0,3).toUpperCase(),status:"pending",cpf:f.cpf,birth_date:f.birthDate,address:f.address,phone:f.phone,custom_type:f.customType};
+    const newP={id:uid(),name:f.name,type:f.type,email:f.email,pw:f.pw,code:f.code,status:"pending",cpf:f.cpf,birth_date:f.birthDate,address:f.address,phone:f.phone,custom_type:f.customType};
     await sb.post("partners",newP);
     setPartners(prev=>[...prev,toPartner(newP)]);
     // Email para o restaurante
@@ -318,6 +349,7 @@ function PartnerRegister({partners,setPartners,go,toast}){
         +infoRow("E-mail",f.email)
         +infoRow("Telefone",f.phone)
         +infoRow("CPF",f.cpf)
+        +infoRow("Código",f.code)
       )
       +`<p style="color:#8B4444;font-size:13px;margin:0;">Acesse o painel do restaurante para aprovar ou rejeitar.</p>`;
     for(const em of emails){
@@ -336,7 +368,7 @@ function PartnerRegister({partners,setPartners,go,toast}){
         <Divider/>
         <h2 style={{color:C.primary,margin:"0 0 18px",fontSize:20,textAlign:"center"}}>✨ Solicitação de Cadastro</h2>
         <p style={{fontSize:12,color:C.muted,marginBottom:16,textAlign:"center"}}>Preencha os dados abaixo. Sua conta será ativada após aprovação do restaurante.</p>
-        <Input label="Nome completo / Empresa *" value={f.name} onChange={e=>setF({...f,name:e.target.value})} placeholder="Seu nome ou empresa"/>
+        <Input label="Nome completo / Empresa *" value={f.name} onChange={e=>handleName(e.target.value)} placeholder="Seu nome ou empresa"/>
         <Sel label="Tipo de Parceiro *" value={f.type} onChange={e=>setF({...f,type:e.target.value})}>
           {Object.entries(PTYPES).map(([k,v])=><option key={k} value={k}>{v.icon} {v.label}</option>)}
         </Sel>
@@ -348,14 +380,167 @@ function PartnerRegister({partners,setPartners,go,toast}){
         <Divider/>
         <Input label="Email de acesso *" type="email" value={f.email} onChange={e=>setF({...f,email:e.target.value})} placeholder="seu@email.com"/>
         <Input label="Senha *" type="password" value={f.pw} onChange={e=>setF({...f,pw:e.target.value})} placeholder="Escolha uma senha"/>
+
+        {/* Código de Indicação */}
+        <div style={{marginBottom:12}}>
+          <div style={{color:C.muted,fontSize:11,fontWeight:700,marginBottom:4,textTransform:"uppercase",letterSpacing:0.7}}>Seu Código de Indicação *</div>
+          <input
+            value={f.code}
+            onChange={e=>handleCode(e.target.value)}
+            placeholder="Ex: JOAO24"
+            maxLength={12}
+            style={{
+              width:"100%",
+              background:C.surf2,
+              border:`2px solid ${codeStatus?.ok===true?C.green:codeStatus?.ok===false?C.red:C.border}`,
+              borderRadius:8,
+              padding:"12px 14px",
+              color:C.primary,
+              fontSize:18,
+              fontWeight:800,
+              letterSpacing:2,
+              outline:"none",
+              boxSizing:"border-box",
+              fontFamily:"inherit",
+              textTransform:"uppercase",
+            }}/>
+          <div style={{fontSize:11,marginTop:6,color:codeStatus?.ok===true?C.green:codeStatus?.ok===false?C.red:C.muted,minHeight:14,fontWeight:600}}>
+            {codeStatus ? codeStatus.msg : "Letras e números (3-12 caracteres). Será o código que seus clientes usarão."}
+          </div>
+        </div>
+
         <Btn onClick={reg} style={{width:"100%",padding:"12px",fontSize:15,marginTop:4}} disabled={loading}>{loading?"Enviando...":"Enviar Solicitação"}</Btn>
       </Card>
     </div>
   );
 }
 
+// ─── ACCOUNT TAB (troca de código + troca de senha) ───────────────────────────
+function AccountTab({partner,partners,setPartners,setCurrent,toast}){
+  // Troca de Código
+  const [newCode,setNewCode]=useState(partner.code||"");
+  const [savingCode,setSavingCode]=useState(false);
+  const codeChanged = normalizeCode(newCode) !== normalizeCode(partner.code);
+  const codeStatus = (() => {
+    if(!newCode) return { ok:false, msg:"Informe um código" };
+    if(newCode.length<3) return { ok:false, msg:"Mínimo 3 caracteres" };
+    if(!codeChanged) return { ok:null, msg:"Este é o seu código atual" };
+    if(!isCodeAvailable(partners,newCode,partner.id)) return { ok:false, msg:"Já está em uso por outro parceiro" };
+    return { ok:true, msg:"Disponível ✓" };
+  })();
+
+  const updateCode = async() => {
+    if(!codeChanged) return toast("Digite um código diferente do atual","err");
+    if(newCode.length<3) return toast("Código deve ter ao menos 3 caracteres","err");
+    if(!isCodeAvailable(partners,newCode,partner.id)) return toast("Código já está em uso","err");
+    setSavingCode(true);
+    const res = await sb.patch("partners","id=eq."+partner.id,{code:newCode});
+    setSavingCode(false);
+    if(!Array.isArray(res)||res.length===0){
+      console.error("update code failed:",res);
+      return toast("Erro ao salvar: "+(res?.message||"verifique a conexão"),"err");
+    }
+    setPartners(prev=>prev.map(p=>p.id===partner.id?{...p,code:newCode}:p));
+    setCurrent({...partner,code:newCode});
+    toast("✅ Código atualizado com sucesso!");
+  };
+
+  // Troca de Senha
+  const [curPw,setCurPw]=useState("");
+  const [newPw,setNewPw]=useState("");
+  const [confirmPw,setConfirmPw]=useState("");
+  const [savingPw,setSavingPw]=useState(false);
+
+  const updatePassword = async() => {
+    if(!curPw||!newPw||!confirmPw) return toast("Preencha todos os campos","err");
+    if(curPw!==partner.pw) return toast("Senha atual incorreta","err");
+    if(newPw.length<4) return toast("Nova senha deve ter ao menos 4 caracteres","err");
+    if(newPw!==confirmPw) return toast("As senhas não conferem","err");
+    if(newPw===curPw) return toast("A nova senha deve ser diferente da atual","err");
+    setSavingPw(true);
+    const res = await sb.patch("partners","id=eq."+partner.id,{pw:newPw});
+    setSavingPw(false);
+    if(!Array.isArray(res)||res.length===0){
+      console.error("update pw failed:",res);
+      return toast("Erro ao salvar: "+(res?.message||"verifique a conexão"),"err");
+    }
+    setPartners(prev=>prev.map(p=>p.id===partner.id?{...p,pw:newPw}:p));
+    setCurrent({...partner,pw:newPw});
+    setCurPw(""); setNewPw(""); setConfirmPw("");
+    toast("🔒 Senha atualizada com sucesso!");
+  };
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:14}}>
+      {/* Troca de Código */}
+      <Card>
+        <div style={{fontWeight:700,fontSize:15,marginBottom:6,display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontSize:18}}>🎫</span> Seu Código de Indicação
+        </div>
+        <div style={{fontSize:12,color:C.muted,marginBottom:14,lineHeight:1.6}}>
+          Este é o código que seus clientes usarão para fazer reservas com desconto. Você pode alterá-lo a qualquer momento — seu histórico de pontos e check-ins é preservado.
+        </div>
+        <div style={{marginBottom:12}}>
+          <div style={{color:C.muted,fontSize:11,fontWeight:700,marginBottom:4,textTransform:"uppercase",letterSpacing:0.7}}>Código</div>
+          <input
+            value={newCode}
+            onChange={e=>setNewCode(normalizeCode(e.target.value))}
+            placeholder="Ex: JOAO24"
+            maxLength={12}
+            style={{
+              width:"100%",
+              background:C.surf2,
+              border:`2px solid ${codeStatus?.ok===true?C.green:codeStatus?.ok===false?C.red:C.border}`,
+              borderRadius:10,
+              padding:"14px 16px",
+              color:C.primary,
+              fontSize:22,
+              fontWeight:900,
+              letterSpacing:4,
+              textAlign:"center",
+              outline:"none",
+              boxSizing:"border-box",
+              fontFamily:"inherit",
+              textTransform:"uppercase",
+            }}/>
+          <div style={{fontSize:11,marginTop:6,color:codeStatus?.ok===true?C.green:codeStatus?.ok===false?C.red:C.muted,minHeight:14,fontWeight:600,textAlign:"center"}}>
+            {codeStatus.msg}
+          </div>
+        </div>
+        <Btn
+          onClick={updateCode}
+          disabled={savingCode||codeStatus?.ok!==true}
+          style={{width:"100%",padding:"12px",fontSize:14,marginTop:4}}>
+          {savingCode?"Salvando...":"Atualizar Código"}
+        </Btn>
+      </Card>
+
+      {/* Troca de Senha */}
+      <Card>
+        <div style={{fontWeight:700,fontSize:15,marginBottom:6,display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontSize:18}}>🔒</span> Alterar Senha
+        </div>
+        <div style={{fontSize:12,color:C.muted,marginBottom:14,lineHeight:1.6}}>
+          Para sua segurança, informe a senha atual antes de definir uma nova.
+        </div>
+        <Input label="Senha Atual" type="password" value={curPw} onChange={e=>setCurPw(e.target.value)} placeholder="Sua senha atual"/>
+        <Input label="Nova Senha" type="password" value={newPw} onChange={e=>setNewPw(e.target.value)} placeholder="Mínimo 4 caracteres"/>
+        <Input label="Confirmar Nova Senha" type="password" value={confirmPw} onChange={e=>setConfirmPw(e.target.value)} placeholder="Digite novamente"/>
+        {newPw && confirmPw && newPw !== confirmPw && (
+          <div style={{fontSize:12,color:C.red,marginBottom:10,marginTop:-4,fontWeight:600}}>
+            ⚠ As senhas não conferem
+          </div>
+        )}
+        <Btn variant="success" onClick={updatePassword} disabled={savingPw} style={{width:"100%",padding:"12px",fontSize:14,marginTop:4}}>
+          {savingPw?"Salvando...":"Atualizar Senha"}
+        </Btn>
+      </Card>
+    </div>
+  );
+}
+
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
-function Dashboard({partner,allCheckins,bookings,partners,go}){
+function Dashboard({partner,allCheckins,bookings,partners,setPartners,setCurrent,go,toast}){
   const [tab,setTab]=useState("home");
   const myCheckins=allCheckins.filter(c=>c.partnerId===partner.id&&c.status==="confirmed");
   const myBookings=bookings.filter(b=>b.partnerId===partner.id&&b.status==="pending");
@@ -419,7 +604,7 @@ function Dashboard({partner,allCheckins,bookings,partners,go}){
           ))}
         </div>
 
-        <TabBar tabs={[["home","🏠 Início"],["qr","📲 QR Code"],["benefits","🎁 Benefícios"],["hist","📋 Histórico"],["rules","📋 Regras"]]} active={tab} set={setTab}/>
+        <TabBar tabs={[["home","🏠 Início"],["qr","📲 QR Code"],["benefits","🎁 Benefícios"],["hist","📋 Histórico"],["conta","⚙️ Conta"],["rules","📋 Regras"]]} active={tab} set={setTab}/>
 
         {tab==="home"&&(
           <>
@@ -472,10 +657,10 @@ function Dashboard({partner,allCheckins,bookings,partners,go}){
           <div style={{display:"flex",flexDirection:"column",gap:12}}>
             <Card>
               <div style={{fontWeight:700,fontSize:15,marginBottom:14}}>💰 Comissionamento por Nível</div>
-              {[{l:"Ouro",e:"🥇",r:2},{l:"Diamante",e:"💎",r:5},{l:"Lenda",e:"👑",r:10}].map(b=>(
+              {[{l:"Ouro",e:"🥇",r:2,min:"300"},{l:"Diamante",e:"💎",r:5,min:"700"},{l:"Lenda",e:"👑",r:10,min:"1.500"}].map(b=>(
                 <div key={b.l} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:"1px solid "+C.border}}>
                   <div style={{fontSize:24}}>{b.e}</div>
-                  <div style={{flex:1}}><div style={{fontWeight:700}}>{b.l}</div><div style={{fontSize:12,color:C.muted}}>500+ / 1.000+ / 2.000+ pontos</div></div>
+                  <div style={{flex:1}}><div style={{fontWeight:700}}>{b.l}</div><div style={{fontSize:12,color:C.muted}}>A partir de {b.min} pontos</div></div>
                   <div style={{fontWeight:900,color:C.green,fontSize:18}}>R$ {b.r},00<span style={{fontSize:11,fontWeight:400,color:C.muted}}>/pessoa</span></div>
                 </div>
               ))}
@@ -516,6 +701,8 @@ function Dashboard({partner,allCheckins,bookings,partners,go}){
             }
           </Card>
         )}
+
+        {tab==="conta"&&<AccountTab partner={partner} partners={partners} setPartners={setPartners} setCurrent={setCurrent} toast={toast}/>}
 
         {tab==="rules"&&<Rules/>}
       </div>
@@ -1301,7 +1488,7 @@ function Rules(){
       <div style={{fontSize:12,color:C.red,background:C.surf2,borderRadius:8,padding:"8px 12px",marginBottom:16,fontWeight:600}}>⚠️ O sistema está em teste e pode sofrer ajustes nos próximos meses.</div>
       {[
         {t:"📊 Pontuação",c:"Cada cliente que comparece ao restaurante vale 1 ponto. A pontuação é registrada no momento do check-in pelo restaurante, com o número exato de pessoas presentes."},
-        {t:"🏅 Níveis",c:"Os níveis são calculados com base no total acumulado de pontos (clientes presentes em todos os períodos):\n🌱 Iniciante: 0 pts\n🥉 Bronze: 100 pts\n🥈 Prata: 250 pts\n🥇 Ouro: 500 pts\n💎 Diamante: 1.000 pts\n👑 Lenda: 2.000 pts"},
+        {t:"🏅 Níveis",c:"Os níveis são calculados com base no total acumulado de pontos (clientes presentes em todos os períodos):\n🌱 Iniciante: 0 pts\n🥉 Bronze: 50 pts\n🥈 Prata: 150 pts\n🥇 Ouro: 300 pts\n💎 Diamante: 700 pts\n👑 Lenda: 1.500 pts"},
         {t:"💰 Comissionamento (a partir do Ouro)",c:"Parceiros a partir do nível Ouro recebem comissão por cada pessoa presente:\n🥇 Ouro: R$ 2,00 por pessoa\n💎 Diamante: R$ 5,00 por pessoa\n👑 Lenda: R$ 10,00 por pessoa\nO pagamento será combinado diretamente com o restaurante."},
         {t:"🏆 Premiação Mensal do Ranking",c:"O ranking é apurado mensalmente. Os 3 primeiros colocados ganham:\n🥇 1º lugar: Rodízio premium para 2 com bebida\n🥈 2º lugar: Rodízio premium para 2 sem bebida\n🥉 3º lugar: Rodízio tradicional para 2\n\nRequisito mínimo: 30 pessoas presentes no período para ser elegível à premiação, mesmo estando no top 3."},
         {t:"📅 Apuração do Ranking",c:"O ranking pode ser filtrado por período (data início e data fim). A pontuação acumulada para evolução nos níveis não é zerada com a virada do período — apenas os pontos do período filtrado contam para o ranking e premiação mensal."},
@@ -1364,7 +1551,7 @@ export default function App(){
       {view==="loginChoice" &&<LoginChoice go={go}/>}
       {view==="login"       &&<PartnerLogin partners={partners} setCurrent={setCurrent} go={go} toast={toast}/>}
       {view==="register"    &&<PartnerRegister partners={partners} setPartners={setPartners} go={go} toast={toast}/>}
-      {view==="dashboard"   &&current&&<Dashboard partner={current} allCheckins={checkins} bookings={bookings} partners={partners} go={go}/>}
+      {view==="dashboard"   &&current&&<Dashboard partner={current} allCheckins={checkins} bookings={bookings} partners={partners} setPartners={setPartners} setCurrent={setCurrent} go={go} toast={toast}/>}
       {view==="tourist"     &&<TouristView partners={partners} bookings={bookings} setBookings={setBookings} go={go} toast={toast}/>}
       {view==="admin"       &&<AdminView partners={partners} setPartners={setPartners} checkins={checkins} setCheckins={setCheckins} bookings={bookings} setBookings={setBookings} go={go} toast={toast}/>}
       {view==="leaderboard" &&<Leaderboard allCheckins={checkins} partners={partners} go={go}/>}
